@@ -5,6 +5,7 @@ import tasks
 from celery.utils import uuid
 import os
 from lib import config_parser, utils
+from subprocess import Popen
 
 def does_aquatone_folder_exixst():
     workspace = lib.db.get_current_workspace()[0][0]
@@ -40,7 +41,7 @@ def screenshot_command(arguments):
 
     # lib.screenshot.screenshot_all_paths(workspace)
     #TODO: change this to reflect number of screenshots taken based on config.ini max
-    paths_len = len(lib.db.get_all_paths(workspace))
+    paths_len = len(lib.db.get_all_paths_exclude_404(workspace))
     max_paths_len = len(get_max_screenshots(workspace,config_file))
     max = lib.config_parser.get_screenshot_max(config_file)
     print("[+]\n[+] There are [{0}] paths in the DB").format(str(paths_len))
@@ -64,7 +65,7 @@ def aquatone_all_paths(workspace,simulation=None,config_file=None):
     #print("in aquatone all_paths")
     urls_to_screenshot = []
     #TODO: Instead of just grabbing all paths here, maybe add some logic to see if only new paths should be scanned or something. at a minimum, as they are grabbed, we need to update the "screenshot taken" column and put the auatone directory or something like that.
-    paths = lib.db.get_all_paths(workspace)
+    paths = lib.db.get_all_paths_exclude_404(workspace)
     celery_path = lib.db.get_current_install_path()[0][0]
     outdir = lib.db.get_output_dir_for_workspace(workspace)[0][0]
     outdir = os.path.join(outdir,'celerystalkReports/aquatone/')
@@ -94,16 +95,20 @@ def aquatone_all_paths(workspace,simulation=None,config_file=None):
                 exit()
 
 
-        task_id = uuid()
-        utils.create_task(cmd_name, populated_command, workspace, outdir + "aquatone_report.html", workspace, task_id)
-        result = chain(
-            tasks.run_cmd.si(cmd_name, populated_command, celery_path, task_id).set(task_id=task_id),
-        )()
-        print("[+]\t\tTo keep an eye on things, run one of these commands: \n[+]")
-        print("[+]\t\t./celerystalk query [watch]")
-        print("[+]\t\t./celerystalk query brief [watch]")
-        print("[+]\t\t./celerystalk query summary [watch]")
-        print("[+]\t\tor\n[+]\t\ttail -f " + outdir + "aquatone_stdout.txt")
-        print("[+]")
-        print("[+] To peak behind the curtain, view log/celeryWorker.log")
-        print("[+] For a csv compatible record of every command execued, view log/cmdExecutionAudit.log\n")
+
+        p = Popen(populated_command, shell=True)
+        p.communicate()
+
+        # task_id = uuid()
+        # utils.create_task(cmd_name, populated_command, workspace, outdir + "aquatone_report.html", workspace, task_id)
+        # result = chain(
+        #     tasks.run_cmd.si(cmd_name, populated_command, celery_path, task_id).set(task_id=task_id),
+        # )()
+        # print("[+]\t\tTo keep an eye on things, run one of these commands: \n[+]")
+        # print("[+]\t\t./celerystalk query [watch]")
+        # print("[+]\t\t./celerystalk query brief [watch]")
+        # print("[+]\t\t./celerystalk query summary [watch]")
+        # print("[+]\t\tor\n[+]\t\ttail -f " + outdir + "aquatone_stdout.txt")
+        # print("[+]")
+        # print("[+] To peak behind the curtain, view log/celeryWorker.log")
+        # print("[+] For a csv compatible record of every command execued, view log/cmdExecutionAudit.log\n")

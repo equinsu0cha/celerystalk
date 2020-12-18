@@ -1,19 +1,15 @@
 # celerystalk
+
+celerystalk helps you automate your network scanning/enumeration process with asynchronous jobs (aka *tasks*) while retaining full control of which tools you want to run.    
+
+
 ![](https://i.imgur.com/tZ4RkOr.png)
+
 Interactive Demo: [Bug Bounty Mode (HackerOne)](https://sethsec.github.io/celerystalk/bug_bounty_mode/celerystalkReports/)
 
 Interactive Demo: [Vulnerability Assessment / PenTest Mode (Retired HackTheBox.eu machines)](https://sethsec.github.io/celerystalk/vapt_mode/celerystalkReports/)
 
----
-celerystalk helps you automate your network scanning/enumeration process with asynchronous jobs (aka *tasks*) while retaining full control of which tools you want to run.    
 
-* **Configurable** - Some common tools are in the default config, but you can add any tool you want
-* **Service Aware** - Uses Nmap/Nessus service names rather than port numbers to decide which tools to run 
-* **Scalable** - Designed for scanning multiple hosts, but works well for scanning one host at a time
-* **VirtualHosts** - Supports subdomain recon and virtualhost scanning
-* **Job Control** - Supports canceling, pausing, and resuming of tasks, inspired by Burp scanner
-* **Screenshots** - Screenshots (aquatone) every in-scope URL that was identified by any tool (you can limit # of screenshots if you'd like)
----
 
 ## What celerystalk can automate for you
 
@@ -26,6 +22,18 @@ Directory and File Enumeration, Vulnerability Identification | ./celerystalk sca
 Screenshots | ./celerystalk sceenshots | Aquatone
 Analysis | ./celerystalk report | celerystalk
 
+---
+celerystalk is: 
+
+* **Configurable** - Some common tools are in the default config, but you can add any tool you want
+* **Service Aware** - Uses Nmap/Nessus service names rather than port numbers to decide which tools to run 
+* **Scalable** - Designed for scanning multiple hosts, but works well for scanning one host at a time
+* **VirtualHosts** - Supports subdomain recon and virtualhost scanning
+* **Job Control** - Supports canceling, pausing, and resuming of tasks, inspired by Burp scanner
+* **Screenshots** - Screenshots (aquatone) every in-scope URL that was identified by any tool (you can limit # of screenshots if you'd like)
+---
+
+
 ## Install/Setup
 
 * **Supported Operating Systems:** Kali 
@@ -34,35 +42,43 @@ Analysis | ./celerystalk report | celerystalk
 **You must install and run celerystalk as root**   
 
 ```
-# git clone https://github.com/sethsec/celerystalk.git
-# cd celerystalk/setup
-# ./install.sh
-# cd ..
-# ./celerystalk -h
+git clone https://github.com/sethsec/celerystalk.git
+cd celerystalk/setup
+./install.sh
+cd ..
+./celerystalk -h
 ```
+
+## Use docker container from Dockerhub
+
+```
+docker pull sethsec/celerystalk:latest
+docker run -p 27007:27007 -ti celerystalk
+```
+
+
+## Docker Build
+```
+docker build -t celerystalk https://github.com/sethsec/celerystalk.git
+docker run -p 27007:27007 -ti celerystalk 
+```
+
 
 
 ## Using celerystalk - The basics
 
 
-### [URL Mode] - How to scan a a URL  
-* Use this as a follow up whenever you find an interesting directory, or just as quick way to scan one web app without importing anything.
+### [URL Mode] - How to scan a a URL (or multiple URLs in a file) 
 
-#### Launch all enabled tools against a single URL without having to import scope, nmap, etc. 
+#### Launch all enabled tools against a URL or many URLs in a file without having to import scope, nmap, etc. 
 ```
-# ./celerystalk workspace create -o /dir -m {vapt|bb}   # Create default workspace, set output dir and mode
-# ./celerystalk scan -u url                             # Run all enabled commands against this path
+# ./celerystalk scan -u url or filename                 # Run all enabled commands against specified url(s)
 # ./celerystalk query watch (then Ctrl+c)               # Wait for scans to finish
 # ./celerystalk screenshots                             # Take screenshots
 # ./celerystalk report                                  # Generate report
 ```
 
 ### [CTF/HackTheBox/Easy mode] - How to scan one or more hosts
-
-#### Create workspace. Set output dir and mode
-```
-# ./celerystalk workspace create -w htb -o /htb -m vapt 
-```
 
 #### Import nmap xml
 ```
@@ -83,6 +99,14 @@ Analysis | ./celerystalk report | celerystalk
 # ./celerystalk screenshots                             # Take screenshots
 # ./celerystalk report                                  # Generate report
 ```
+
+## Advanced Usage: Bug Bounty Mode vs Vulnerability Assessment Mode
+
+You define the mode at workspace instantiation. The default workspace is VAPT mode, but you have two options for manually 
+created workspaces.
+
+* If you are starting with in scope IP addresses/ranges/CIDRs, use Vulnerability Assessment and PenTest (VAPT) mode.
+* If you are starting with in scope domains, use Bug Bounty (BB) mode. 
 
 ### [Bug Bounty Mode] 
 
@@ -192,7 +216,7 @@ Import multiple files:      ./celerystalk import -f nmap.xml -S scope.txt -D dom
 ```
     
 #### subdomains
-This command executes uses all of the subdomain seach tools in your config file. If you prefer, you can do this outside of celerystalk and import the subdomains with the import command
+This command executes uses all of the subdomain search tools in your config file. If you prefer, you can do this outside of celerystalk and import the subdomains with the import command
 
 | Option | Description |
 | --- | --- |
@@ -274,7 +298,7 @@ Cancel/Pause/Resume any task(s) that are currently running or in the queue.
 | Option | Description |
 | --- | --- |
 | cancel | <ul><li>Canceling a running task will send a **kill -TERM**</li><li>Canceling a queued task* will make celery ignore it (uses celery's revoke).</li><li>Canceling all tasks* will kill running tasks and revoke all queued tasks.</li></ul>
-| pause | <ul><li>Pausing a single task uses **kill -STOP** to suspend the process.</li><li>Pausing all tasks* attemtps to *kill -STOP* all running tasks, but it is a little wonky and you mind need to run it a few times. It is possible a job completed before it was able to be paused, which means you will have a worker that is still accepting new jobs.</li></ul>
+| pause | <ul><li>Pausing a single task uses **kill -STOP** to suspend the process.</li><li>Pausing all tasks* attempts to *kill -STOP* all running tasks, but it is a little wonky and you mind need to run it a few times. It is possible a job completed before it was able to be paused, which means you will have a worker that is still accepting new jobs.</li></ul>
 | resume | <ul><li>Resuming tasks* sends a **kill -CONT** which allows the process to start up again where it left off.</li></ul>|
 
 ```

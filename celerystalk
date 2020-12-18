@@ -7,7 +7,7 @@ Usage:
     celerystalk subdomains [-d <domains>] [-c <config_file>] [-s] [-h]
     celerystalk nmap [-t <targets>] [-c <config_file>] [-s] [-h]
     celerystalk scan [-t <targets>] [--noIP] [-c <config_file>] [-s] [-h]
-    celerystalk scan -u <url> [-c <config_file>] [-s] [-h]
+    celerystalk scan -u <url_or_file_with_urls> [-c <config_file>] [-s] [-h]
     celerystalk rescan [-t <targets>] [-c <config_file>] [-s] [-h]
     celerystalk query ([full] | [summary] | [brief]) [watch] [-h]
     celerystalk query [watch] ([full] | [summary] | [brief]) [-h]
@@ -19,6 +19,7 @@ Usage:
     celerystalk db ([workspaces]|[workspace]|[services]|[ports]|[hosts]|[vhosts]|[paths]|[paths_only]|[tasks]) [-h]
     celerystalk db export [-h]
     celerystalk db paths_only limit [-h]
+    celerystalk db paths_include_404s [-h]
     celerystalk admin ([start]|[stop]|[restart]|[reset]|[backup]|[restore]) [-f <restore_file>] [-h]
     celerystalk interactive [-h]
     celerystalk (help | -h | --help)
@@ -34,7 +35,7 @@ Options:
     -O <outscope_file>  Out of scope hosts file
     -D <subdomains_file> Subdomains import file
     -t <targets>        Target(s): IP, IP Range, CIDR
-    -u <url>            URL to parse and scan with all configured tools
+    -u <url>            URL to parse and scan with all configured tools (or a filename with multiple URLs)
     -w <workspace>      Workspace
     -d --domains        Domains to scan for vhosts
     -s --simulation     Simulation mode.  Submit tasks comment out all commands
@@ -89,12 +90,13 @@ import csv
 
 from lib.nmap import nmapcommand
 
-build=str(210)
+build=str(249)
+
 
 def print_banner():
 
     print("\ncelerystalk  -\tAn asynchronous network enumeration/vulnerability scanner ")
-    print("    v1.2 \tRun all your tools against all your hosts (IPs/virtual hosts/subdomains)")
+    print("    v1.3.1 \tRun all your tools against all your hosts (IPs/virtual hosts/subdomains)")
     print("\t\tby @sethsec")
     print("\t\tBuild: {0}\n".format(build))
 
@@ -110,8 +112,10 @@ def main(arguments):
     db.create_current_workspace_table()
     db.create_celerystalk_table()
 
-    celery_path = sys.path[0]
-    db.set_install_path((celery_path,))
+    celerystalk_path = os.path.join(sys.path[0],'')
+    db.set_install_path((celerystalk_path,))
+
+    lib.workspace.create_default_workspace(celerystalk_path)
 
     lib.utils.check_for_new_default_config()
     lib.utils.check_for_dependencies()
@@ -464,7 +468,7 @@ def main(arguments):
             lib.utils.restart_services(config_file)
             exit()
         if arguments["reset"]:
-            lib.administrative.backup_all_workspaces(backup_file=arguments["-f"])
+            backup_result = lib.administrative.backup_all_workspaces(backup_file=arguments["-f"])
             print("[!] WARNING: This action destroy the celerystalk database and flush the redis DB.")
             answer = raw_input("Are you sure you want to continue? (y\N): ")
             print("")
@@ -479,7 +483,7 @@ def main(arguments):
                 lib.utils.shutdown_background_jobs()
                 exit()
         if arguments["backup"]:
-            lib.administrative.backup_all_workspaces(backup_file=arguments["-f"])
+            backup_result = lib.administrative.backup_all_workspaces(backup_file=arguments["-f"])
         if arguments["restore"]:
             if arguments["-f"]:
                 restore_file = arguments["-f"]
@@ -554,7 +558,6 @@ def main(arguments):
             answer = raw_input("[!] Would you like to take screenshots of all paths before generating the report? [Y\\n] ")
             if (answer == "Y") or (answer == "y") or (answer == ""):
                 lib.screenshot.screenshot_command(arguments)
-                exit()
         if arguments["-t"]:
             target_list = lib.utils.target_splitter(arguments["-t"])
             lib.report.report(workspace,config_file,target_list)
@@ -597,8 +600,13 @@ def main(arguments):
             help_table.add_row(["ports", "Same as ports."])
             help_table.add_row(["hosts", "Show all hosts, whether they are in-scope, out of scope, or submitted."])
             help_table.add_row(["vhosts", "Same as hosts command, but excludes vhosts that are IP addresses."])
-            help_table.add_row(["paths", "Show all paths that have been identified by vhost."])
+            help_table.add_row(["paths", "Show all paths that have been identified by vhost, excluding 404s."])
+            help_table.add_row(["paths_include_404s", "Show all paths that have been identified by vhost."])
+            help_table.add_row(["paths_only", "Skip the table and show just the paths for easy copy/paste into other tools."])
             help_table.add_row(["tasks", "Show all tasks in the DB."])
+            help_table.add_row(["export", "Export hosts, services and paths (with 404s) as CSVs, and also export paths (excluding 404s) as a txt file."])
+            help_table.add_row(["export_paths_only", "export paths (excluding 404s) as a txt file."])
+
 
             print(help_table)
             print("\n")
@@ -609,7 +617,8 @@ def main(arguments):
                                 ./celerystalk db ports
     Show hosts:                 ./celerystalk db hosts
     Show vhosts only            ./celerystalk db vhosts
-    Show paths:                 ./celerystalk db paths
+    Show paths (404s excluded): ./celerystalk db paths
+    Show paths & include 404s   ./celerystalk db paths_include_404s
     Show paths (no table)       ./celerystalk db paths_only     
     Show tasks:                 ./celerystalk db tasks
     Export tables to csv        ./celerystalk db export
@@ -677,15 +686,29 @@ def main(arguments):
                 print(services_table)
                 print("\n\n")
             elif arguments["paths"]:
-                print("[+] Showing paths for the [{0}] workspace\n".format(workspace))
-                columns = ["IP", "Port", "Path"]
+                print("[+] Showing paths for the [{0}] workspace (excluding 404s)\n    To show table with 404s use:\n        ./celerystalk db paths_include_404s\n".format(workspace))
+                columns = ["IP", "Port", "Path","Status"]
+                paths_rows = lib.db.get_all_paths_exclude_404(workspace)
+                paths_table = PrettyTable(columns)
+                paths_table.align[columns[0]] = "l"
+                paths_table.align[columns[1]] = "l"
+                paths_table.align[columns[2]] = "l"
+                paths_table.align[columns[3]] = "l"
+                for row in paths_rows:
+                    paths_table.add_row(row[1:5])
+                print(paths_table)
+                print("\n\n")
+            elif arguments["paths_include_404s"]:
+                print("[+] Showing all paths for the [{0}] workspace\n".format(workspace))
+                columns = ["IP", "Port", "Path","Status"]
                 paths_rows = lib.db.get_all_paths(workspace)
                 paths_table = PrettyTable(columns)
                 paths_table.align[columns[0]] = "l"
                 paths_table.align[columns[1]] = "l"
                 paths_table.align[columns[2]] = "l"
+                paths_table.align[columns[3]] = "l"
                 for row in paths_rows:
-                    paths_table.add_row(row[1:4])
+                    paths_table.add_row(row[1:5])
                 print(paths_table)
                 print("\n\n")
             elif arguments["paths_only"]:
@@ -696,7 +719,7 @@ def main(arguments):
                     for path in paths:
                         print path
                 else:
-                    paths_rows = lib.db.get_all_paths(workspace)
+                    paths_rows = lib.db.get_all_paths_exclude_404(workspace)
                     for row in paths_rows:
                         sys.stdout.write(row[3]+"\n")
                 print("\n")
@@ -750,6 +773,7 @@ def main(arguments):
                 print("[+] Saved all paths in the [{0}] workspace to {1}".format(workspace,paths_output_file))
                 paths_filename = workspace + "_paths.txt"
                 paths_output_file = os.path.join(output_dir, paths_filename)
+                paths_rows = lib.db.get_all_paths_exclude_404(workspace)
                 with open(paths_output_file, 'wb') as f:
                     for path in paths_rows:
                         f.write(path[3] + "\n")
@@ -932,13 +956,15 @@ def main(arguments):
                                 ./celerystalk scan -t sub.domain.com
     Scan URL                    ./celerystalk scan -u http://sub.domain.com/
                                 ./celerystalk scan -u http://sub.domain.com/path/
+    Scan URLs from file         ./celerystalk scan -u urls.txt
+
     Simulation mode:            ./celerystalk scan -s
 
             \n""")
             exit()
 
         lib.utils.start_services(config_file)
-        celery_path = sys.path[0]
+        celerystalk_path = sys.path[0]
 
         if arguments["-w"]:
             output_dir, workspace = lib.workspace.create_workspace(arguments["-w"], arguments)
@@ -957,7 +983,7 @@ def main(arguments):
         # Scan - URL - Parse use provided URL and run all celerystalk tools against it
         ####################################
         if arguments["-u"]:
-            lib.scan.process_url(arguments["-u"], workspace, output_dir, arguments,config_file=config_file)
+            lib.scan.process_url_param(arguments["-u"], workspace, output_dir, arguments,config_file=config_file)
             exit()
         elif arguments["-t"]:
             target_list = lib.utils.target_splitter(arguments["-t"])

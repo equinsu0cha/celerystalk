@@ -11,6 +11,9 @@ import os
 import re
 import lib.db
 import lib.config_parser
+import redis
+from redis import ConnectionError
+
 
 
 def task_splitter(id):
@@ -124,18 +127,16 @@ def nmap_follow_up_scan(hosts, port):
 
 
 def start_services(config_file):
-    # maybe this first part should be somwhere else.   But for now, in order to run, celery worker and celery flower need to be started.
-    #print("[+] Starting celery worker")
     start_celery_worker(config_file)
     start_redis()
-    #print("[+] Reading config file")
+    check_redis_running()
 
 def restart_services(config_file):
     shutdown_background_jobs()
     sleep(2)
     start_celery_worker(config_file)
     start_redis()
-    #print("[+] Reading config file")
+    check_redis_running()
 
 
 
@@ -266,14 +267,17 @@ def create_task(command_name, populated_command, ip, output_dir, workspace, task
 
 
 def check_for_new_default_config():
-    user_config_file = 'config.ini'
+
+    user_config_file = check_if_config_ini_exists()
     default_config_file = 'setup/config_default.ini'
     user_config_age=os.path.getmtime(user_config_file)
     #print(user_config_age)
     default_config_age = os.path.getmtime(default_config_file)
     #print(default_config_age)
     if user_config_age < default_config_age:
+
         print("[!] [config_default.ini] pulled from git is newer than the the current [config.ini] file.")
+
         print("[!] This is most likely because a new tool or possibly a new feature has been added.\n")
         answer = raw_input("[+] Would you like backup your current config and replace [config.ini] with the new version? (y\N)")
         print("")
@@ -290,6 +294,17 @@ def check_for_new_default_config():
             populated_command = "touch " + path
             p = Popen(populated_command, shell=True)
             p.communicate()
+
+
+
+def check_if_config_ini_exists():
+    if os.path.exists(os.path.join(os.getcwd(), 'config.ini')):
+        config_file = 'config.ini'
+    else:
+        print("[!] The default config file does not exist. Run ./setup/install.sh and try again.")
+        exit()
+    return config_file
+
 
 def check_for_dependencies():
     try:
@@ -317,3 +332,22 @@ def get_terminal_width():
               command, e.returncode))
     else:
         return width
+
+
+def check_redis_running():
+        r = redis.Redis(host='localhost', port=6379, db=0)
+        try:
+            r.ping()
+        except ConnectionError:
+            print("[!] Redis is not running, try starting it: ")
+            print("/etc/init.d/redis-server restart")
+            exit(0)
+
+def check_celery_status():
+    from celery import Celery
+    app = Celery('tasks', broker='redis://localhost:6379', backend='db+sqlite:///results.sqlite')
+    status = app.control.inspect().active()
+    if not status:
+        print("[!] Celery is not running, try starting it: ")
+        print("./celerystalk admin start")
+        exit(0)

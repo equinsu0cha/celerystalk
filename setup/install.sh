@@ -28,7 +28,15 @@ echo "*************************************************"
 echo "*        Installing applications via apt        *"
 echo "*************************************************"
 echo ""
+
+
+if [ "$1" == "-d" ]; then
+    INSTALL_DOCKER="true"
+fi
+
+
 if [ "$DISTRO" == "kali" ]; then
+
     apt-get update -y
     if [[ $? > 0 ]]; then
         echo
@@ -36,12 +44,18 @@ if [ "$DISTRO" == "kali" ]; then
         echo "[!] apt-get update failed, exiting..."
         exit
     fi
-    apt-get install curl gnupg2 -y
-    curl -fsSL https://download.docker.com/linux/debian/gpg | apt-key add -
-    echo 'deb [arch=amd64] https://download.docker.com/linux/debian buster stable' > /etc/apt/sources.list.d/docker.list
-    apt-get update -y
-    apt-get remove docker docker-engine docker.io containerd runc -y
-    apt-get install apt-transport-https ca-certificates curl gnupg2 software-properties-common docker-ce gobuster nikto cewl whatweb sqlmap nmap sslscan sslyze hydra medusa dnsrecon enum4linux ncrack crowbar onesixtyone smbclient redis-server seclists chromium python-pip python3-pip wpscan jq -y
+    if [ "$INSTALL_DOCKER" == "true" ]; then
+        apt-get install curl gnupg2 -y
+        curl -fsSL https://download.docker.com/linux/debian/gpg | apt-key add -
+        echo 'deb [arch=amd64] https://download.docker.com/linux/debian buster stable' > /etc/apt/sources.list.d/docker.list
+        apt-get update -y
+        apt-get remove docker docker-engine docker.io containerd runc -y
+        apt-get install apt-transport-https ca-certificates curl wget gnupg2 software-properties-common docker-ce vim curl gobuster nikto cewl whatweb sqlmap nmap sslscan sslyze hydra medusa dnsrecon enum4linux ncrack crowbar onesixtyone smbclient redis-server seclists chromium python-pip python3-pip wpscan jq amass -y
+    else
+        apt-get update -y
+        apt-get install apt-transport-https ca-certificates curl wget gnupg2 software-properties-common vim curl gobuster nikto cewl whatweb sqlmap nmap sslscan sslyze hydra medusa dnsrecon enum4linux ncrack crowbar onesixtyone smbclient redis-server seclists chromium python-pip python3-pip wpscan jq amass -y
+
+    fi
 elif [ "$DISTRO" == "ubuntu" ]; then
     apt-get update -y
     if [[ $? > 0 ]]; then
@@ -50,11 +64,17 @@ elif [ "$DISTRO" == "ubuntu" ]; then
         echo "[!]  apt-get update failed, exiting..."
         exit
     fi
-    apt-get install curl gnupg2 -y
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
-    sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" -y
-    apt-get update -y
-    apt-get install docker-ce docker-ce-cli containerd.io python-pip python3-pip unzip redis-server chromium jq -y
+   if [ "$INSTALL_DOCKER" == "true" ]; then
+        apt-get install curl gnupg2 -y
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+        sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" -y
+        apt-get update -y
+        apt-get install wget docker.io python-pip python3-pip unzip redis-server chromium-bsu jq -y
+    else
+        apt-get update -y
+        apt-get install wget curl vim python-pip python3-pip unzip redis-server chromium-bsu jq -y
+
+    fi
 fi
 
 
@@ -65,28 +85,47 @@ echo "**************************************"
 echo "*      Starting redis-server          *"
 echo "**************************************"
 echo ""
+IS_PORT_CONFIGURED=`grep "^port 6379" /etc/redis/redis.conf`
+if [ $? == "1" ]; then
+    echo "port 6379" >> /etc/redis/redis.conf
+fi
+sed -i.bak '/^bind/s/::1//g' /etc/redis/redis.conf
 /etc/init.d/redis-server start
 
 echo ""
 echo "******************************************"
-echo "* Installing python requirements via pip *"
+echo "* Installing celerystalk python requirements via pip *"
 echo "******************************************"
 echo ""
-pip install -r requirements.txt --upgrade
+pip2 install -r requirements.txt --upgrade
 
 
-if [ ! -f /opt/amass/amass ]; then
-    echo ""
-    echo "****************************************"
-    echo "* Installing Amass to /opt/amass/amass *"
-    echo "****************************************"
-    echo ""
-    mkdir -p /opt/amass
-    wget https://github.com/OWASP/Amass/releases/download/3.0.3/amass_3.0.3_linux_i386.zip -O /opt/amass/amass_3.0.3_linux_i386.zip
-    unzip /opt/amass/amass_3.0.3_linux_i386.zip -d /opt/amass
-    mv /opt/amass/amass_3.0.3_linux_i386/* /opt/amass/
+echo ""
+echo "**************************************"
+echo "*      Starting python-libnessus     *"
+echo "**************************************"
+echo ""
+
+if [ ! -f /opt/python-libnessus/python_libnessus.egg-info ]; then
+    cd /opt/
+    git clone https://github.com/bmx0r/python-libnessus.git
+    cd python-libnessus
+    python setup.py install
 fi
 
+if [ "$DISTRO" == "ubuntu" ]; then
+    if [ ! -f /opt/amass/amass ]; then
+        echo ""
+        echo "****************************************"
+        echo "* Installing Amass to /opt/amass/amass *"
+        echo "****************************************"
+        echo ""
+        mkdir -p /opt/amass
+        wget https://github.com/OWASP/Amass/releases/download/3.0.3/amass_3.0.3_linux_i386.zip -O /opt/amass/amass_3.0.3_linux_i386.zip
+        unzip /opt/amass/amass_3.0.3_linux_i386.zip -d /opt/amass
+        mv /opt/amass/amass_3.0.3_linux_i386/* /opt/amass/
+    fi
+fi
 
 if [ ! -f /opt/aquatone/aquatone ]; then
     echo ""
@@ -158,6 +197,15 @@ else
     git pull
     pip3 install -r requirements.txt
 fi
+
+echo ""
+echo "**********************************************"
+echo "*           Installing ssh-audit             *"
+echo "**********************************************"
+echo ""
+pip3 install ssh-audit
+
+
 
 #if [ ! -f /opt/CMSmap/cmsmap.py ]; then
 #    echo ""
